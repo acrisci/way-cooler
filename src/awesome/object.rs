@@ -140,7 +140,8 @@ impl <'lua, T, S, O> Eq for StateWrapper<'lua, T, S, O>
 
 impl <'lua, T, S: UserData + Default + Display + Clone, O: Objectable<'lua, T, S>>
     StateWrapper<'lua, T, S, O> {
-    pub fn new(object: O, cached_state: S) -> rlua::Result<Self> {
+    pub fn new(object: O) -> rlua::Result<Self> {
+        let cached_state = object.state()?;
         Ok(StateWrapper { object,
                           cached_state,
                           lifetime_phantom: PhantomData,
@@ -174,11 +175,9 @@ pub trait Objectable<'lua, T, S: UserData + Default + Display + Clone>: Clone {
     /// Please do not use it outside of object.rs.
     fn _wrap(table: Table<'lua>) -> T;
 
-    fn state<O: Objectable<'lua, T, S>>(&self) -> rlua::Result<StateWrapper<'lua, T, S, Self>>
-        where Self: Sized
-    {
-        let state = self.get_table().get::<_, S>("userdata")?;
-        StateWrapper::new(self.clone(), state)
+    fn state(&self) -> rlua::Result<S> {
+        self.get_table().get::<_, S>("userdata")
+        //StateWrapper::new(self.clone(), state)
     }
 
     fn set_state(&self, data: S) -> rlua::Result<()> {

@@ -1,7 +1,7 @@
 use std::fmt::{self, Display, Formatter};
 use std::default::Default;
 use rlua::{self, Table, Lua, UserData, ToLua, Value};
-use super::object::{Object, Objectable};
+use super::object::{Object, Objectable, StateWrapper};
 use super::signal;
 use super::property::Property;
 use super::class::{self, Class};
@@ -48,7 +48,7 @@ impl <'lua> Button<'lua> {
     }
 
     pub fn set_button(&self, new_val: xcb_button_t) -> rlua::Result<()> {
-        let mut button = self.state()?;
+        let mut button = StateWrapper::new(self.clone())?;
         button.button = new_val;
         Ok(())
     }
@@ -60,7 +60,7 @@ impl <'lua> Button<'lua> {
 
     pub fn set_modifiers(&self, mods: Table<'lua>) -> rlua::Result<()> {
         use ::lua::mods_to_rust;
-        let mut button = self.state()?;
+        let mut button = StateWrapper::new(self.clone())?;
         button.modifiers = mods_to_rust(mods)?;
         Ok(())
     }
