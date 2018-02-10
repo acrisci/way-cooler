@@ -86,8 +86,8 @@ pub struct StateWrapper<'lua, T, S, O>
     where O: Objectable<'lua, T, S>,
           S: UserData + Default + Display + Clone
 {
-    object: O,
-    cached_state: S,
+    pub object: O,
+    pub cached_state: S,
     lifetime_phantom: PhantomData<&'lua ()>,
     data_phantom: PhantomData<T>,
 }

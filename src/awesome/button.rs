@@ -41,26 +41,28 @@ impl <'lua> Button<'lua> {
            .handle_constructor_argument(args)?
            .build())
     }
+}
 
+impl <'lua> StateWrapper<'lua, Button<'lua>, ButtonState, Button<'lua>> {
     pub fn button(&self) -> rlua::Result<Value<'lua>> {
-        let button = self.state()?;
+        let button = &self.cached_state;
         Ok(Value::Integer(button.button as _))
     }
 
-    pub fn set_button(&self, new_val: xcb_button_t) -> rlua::Result<()> {
-        let mut button = StateWrapper::new(self.clone())?;
+    pub fn set_button(&mut self, new_val: xcb_button_t) -> rlua::Result<()> {
+        let button = &mut self.cached_state;
         button.button = new_val;
         Ok(())
     }
 
     pub fn modifiers(&self) -> rlua::Result<KeyMod> {
-        let button = self.state()?;
+        let button = &self.cached_state;
         Ok(button.modifiers)
     }
 
-    pub fn set_modifiers(&self, mods: Table<'lua>) -> rlua::Result<()> {
+    pub fn set_modifiers(&mut self, mods: Table<'lua>) -> rlua::Result<()> {
         use ::lua::mods_to_rust;
-        let mut button = StateWrapper::new(self.clone())?;
+        let button = &mut self.cached_state;
         button.modifiers = mods_to_rust(mods)?;
         Ok(())
     }
@@ -94,7 +96,7 @@ pub fn init(lua: &Lua) -> rlua::Result<Class> {
 fn set_button<'lua>(lua: &'lua Lua, (table, val): (Table, Value))
                     -> rlua::Result<Value<'lua>> {
     use rlua::Value::*;
-    let button = Button::cast(table.clone().into())?;
+    let mut button = StateWrapper::new(Button::cast(table.clone().into())?)?;
     match val {
         Number(num) => button.set_button(num as _)?,
         Integer(num) => button.set_button(num as _)?,
@@ -109,13 +111,16 @@ fn set_button<'lua>(lua: &'lua Lua, (table, val): (Table, Value))
 
 fn get_button<'lua>(_: &'lua Lua, table: Table<'lua>)
                     -> rlua::Result<Value<'lua>> {
-    Button::cast(table.into())?.button()
+    StateWrapper::new(Button::cast(table.into())?)?.button()
 }
 
 fn set_modifiers<'lua>(lua: &'lua Lua, (table, modifiers): (Table, Table))
                        -> rlua::Result<Value<'lua>> {
-    let button = Button::cast(table.clone().into())?;
-    button.set_modifiers(modifiers.clone())?;
+    // NOTE block here so that the state is saved before we emit signal
+    {
+        let mut button = StateWrapper::new(Button::cast(table.clone().into())?)?;
+        button.set_modifiers(modifiers.clone())?;
+    }
     signal::emit_signal(lua,
                         table.into(),
                         "property::modifiers".into(),
@@ -126,14 +131,15 @@ fn set_modifiers<'lua>(lua: &'lua Lua, (table, modifiers): (Table, Table))
 fn get_modifiers<'lua>(lua: &'lua Lua, table: Table<'lua>)
                     -> rlua::Result<Value<'lua>> {
     use ::lua::mods_to_lua;
-    mods_to_lua(lua, Button::cast(table.into())?.modifiers()?).map(Value::Table)
+    mods_to_lua(lua, StateWrapper::new(Button::cast(table.into())?)?.modifiers()?)
+        .map(Value::Table)
 }
 
 #[cfg(test)]
 mod test {
     use rlua::{Table, Lua};
     use super::super::button::{self, Button};
-    use super::super::object;
+    use super::super::object::{self, StateWrapper};
 
     #[test]
     fn button_object_test() {
@@ -221,12 +227,14 @@ assert(button0.button == 0)
         button::init(&lua).unwrap();
         lua.globals().set("a_button", Button::new(&lua, lua.create_table()).unwrap())
             .unwrap();
-        let button = Button::cast(lua.globals().get::<_, Table>("a_button")
-                                  .unwrap().into()).unwrap();
+        let button = StateWrapper::new(Button::cast(lua.globals().get::<_, Table>("a_button")
+                                  .unwrap().into()).unwrap()).unwrap();
         assert_eq!(button.modifiers().unwrap(), KeyMod::empty());
         lua.eval::<()>(r#"
 a_button.modifiers = { "Caps" }
 "#, None).unwrap();
+        let button = StateWrapper::new(Button::cast(lua.globals().get::<_, Table>("a_button")
+                                                    .unwrap().into()).unwrap()).unwrap();
         assert_eq!(button.modifiers().unwrap(), MOD_CAPS);
     }
 
@@ -239,12 +247,14 @@ a_button.modifiers = { "Caps" }
         button::init(&lua).unwrap();
         lua.globals().set("a_button", Button::new(&lua, lua.create_table()).unwrap())
             .unwrap();
-        let button = Button::cast(lua.globals().get::<_, Table>("a_button")
-                                  .unwrap().into()).unwrap();
+        let button = StateWrapper::new(Button::cast(lua.globals().get::<_, Table>("a_button")
+                                  .unwrap().into()).unwrap()).unwrap();
         assert_eq!(button.modifiers().unwrap(), KeyMod::empty());
         lua.eval::<()>(r#"
 a_button.modifiers = { "Caps", "Mod2" }
 "#, None).unwrap();
+        let button = StateWrapper::new(Button::cast(lua.globals().get::<_, Table>("a_button")
+                                                    .unwrap().into()).unwrap()).unwrap();
         assert_eq!(button.modifiers().unwrap(), MOD_CAPS | MOD_MOD2);
     }
 
