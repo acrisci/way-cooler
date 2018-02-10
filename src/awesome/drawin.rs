@@ -72,7 +72,7 @@ impl <'lua> Drawin<'lua> {
         let mut drawin = self.state()?;
         drawin.visible = val;
         self.map()?;
-        self.set_state(drawin)
+        Ok(())
     }
 
     fn map(&mut self) -> rlua::Result<()> {
@@ -98,7 +98,7 @@ impl <'lua> Drawin<'lua> {
         self.update_drawing()?;
         // TODO emit signals
         // TODO update screen workareas like in awesome? Might not be necessary
-        self.set_state(state)
+        Ok(())
     }
 }
 

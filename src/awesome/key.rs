@@ -12,6 +12,7 @@ pub struct KeyState {
     dummy: i32
 }
 
+#[derive(Debug, Clone)]
 pub struct Key<'lua>(Table<'lua>);
 
 impl Default for KeyState {

@@ -12,6 +12,7 @@ pub struct ClientState {
     dummy: i32
 }
 
+#[derive(Debug, Clone)]
 pub struct Client<'lua>(Table<'lua>);
 
 impl Default for ClientState {

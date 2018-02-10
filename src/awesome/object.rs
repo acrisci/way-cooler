@@ -1,5 +1,8 @@
 //! Utility methods and constructors for Lua objects
 
+use ::std::marker::PhantomData;
+use std::cmp::{PartialEq, Eq};
+use std::ops::{Deref, DerefMut};
 use std::fmt::Display;
 use std::convert::From;
 use rlua::{self, Lua, Table, UserData, AnyUserData, Value,
@@ -78,6 +81,74 @@ impl <'lua> ObjectBuilder<'lua> {
     }
 }
 
+
+pub struct StateWrapper<'lua, T, S, O>
+    where O: Objectable<'lua, T, S>,
+          S: UserData + Default + Display + Clone
+{
+    object: O,
+    cached_state: S,
+    lifetime_phantom: PhantomData<&'lua ()>,
+    data_phantom: PhantomData<T>,
+}
+
+impl <'lua, T, S, O> Deref for StateWrapper<'lua, T, S, O>
+    where O: Objectable<'lua, T, S>,
+          S: UserData + Default + Display + Clone
+{
+        type Target = S;
+
+        fn deref(&self) -> &S {
+            &self.cached_state
+        }
+    }
+
+impl <'lua, T, S, O> DerefMut for StateWrapper<'lua, T, S, O>
+    where O: Objectable<'lua, T, S>,
+          S: UserData + Default + Display + Clone
+{
+        fn deref_mut(&mut self) -> &mut S{
+            &mut self.cached_state
+        }
+    }
+
+impl <'lua, T, S, O> Drop for StateWrapper<'lua, T, S, O>
+    where O: Objectable<'lua, T, S>,
+          S: UserData + Default + Display + Clone
+{
+    fn drop(&mut self) {
+        if let Err(err) = self.object.set_state(self.cached_state.clone()) {
+            error!("Error setting state for object with state {}: {:?}",
+                   self.cached_state, err);
+        }
+    }
+}
+
+impl <'lua, T, S, O> PartialEq for StateWrapper<'lua, T, S, O>
+    where O: Objectable<'lua, T, S>,
+          S: UserData + Default + Display + Clone + PartialEq
+{
+    fn eq(&self, other: &StateWrapper<'lua, T, S, O>) -> bool {
+        self.cached_state == other.cached_state
+    }
+}
+
+impl <'lua, T, S, O> Eq for StateWrapper<'lua, T, S, O>
+    where O: Objectable<'lua, T, S>,
+          S: UserData + Default + Display + Clone + PartialEq + Eq
+{}
+
+impl <'lua, T, S: UserData + Default + Display + Clone, O: Objectable<'lua, T, S>>
+    StateWrapper<'lua, T, S, O> {
+    pub fn new(object: O, cached_state: S) -> rlua::Result<Self> {
+        Ok(StateWrapper { object,
+                          cached_state,
+                          lifetime_phantom: PhantomData,
+                          data_phantom: PhantomData
+        })
+    }
+}
+
 /// Trait implemented by all objects that represent OO lua objects.
 ///
 /// This trait allows casting an object gotten back from the Lua runtime
@@ -85,7 +156,7 @@ impl <'lua> ObjectBuilder<'lua> {
 ///
 /// You can't do anything to the object until it has been converted into a
 /// canonical form using this trait.
-pub trait Objectable<'lua, T, S: UserData + Default + Display + Clone> {
+pub trait Objectable<'lua, T, S: UserData + Default + Display + Clone>: Clone {
     fn cast(obj: Object<'lua>) -> rlua::Result<T> {
         let data = obj.table.get::<_, AnyUserData>("userdata")?;
         if data.is::<S>() {
@@ -103,8 +174,11 @@ pub trait Objectable<'lua, T, S: UserData + Default + Display + Clone> {
     /// Please do not use it outside of object.rs.
     fn _wrap(table: Table<'lua>) -> T;
 
-    fn state(&self) -> rlua::Result<S> {
-        self.get_table().get::<_, S>("userdata")
+    fn state<O: Objectable<'lua, T, S>>(&self) -> rlua::Result<StateWrapper<'lua, T, S, Self>>
+        where Self: Sized
+    {
+        let state = self.get_table().get::<_, S>("userdata")?;
+        StateWrapper::new(self.clone(), state)
     }
 
     fn set_state(&self, data: S) -> rlua::Result<()> {

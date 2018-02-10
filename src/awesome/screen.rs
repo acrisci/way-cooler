@@ -44,6 +44,7 @@ pub struct ScreenState {
     pub xid: u32
 }
 
+#[derive(Debug, Clone)]
 pub struct Screen<'lua>(Table<'lua>);
 
 impl_objectable!(Screen, ScreenState);
@@ -86,7 +87,7 @@ impl <'lua> Screen<'lua> {
         state.outputs = outputs;
         state.geometry.size = resolution;
         state.workarea.size = resolution;
-        self.set_state(state)
+        Ok(())
     }
 
     fn get_geometry(&self, lua: &'lua Lua) -> rlua::Result<Table<'lua>> {

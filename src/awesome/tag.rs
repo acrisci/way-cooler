@@ -12,6 +12,7 @@ pub struct TagState {
     dummy: i32
 }
 
+#[derive(Debug, Clone)]
 pub struct Tag<'lua>(Table<'lua>);
 
 impl Default for TagState {

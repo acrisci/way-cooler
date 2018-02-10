@@ -19,6 +19,7 @@ pub struct DrawableState {
     refreshed: bool,
 }
 
+#[derive(Debug, Clone)]
 pub struct Drawable<'lua>(Table<'lua>);
 
 impl_objectable!(Drawable, DrawableState);
@@ -81,14 +82,14 @@ impl <'lua> Drawable<'lua> {
                 // TODO emity property::surface
             }
         }
-        self.set_state(drawable)
+        Ok(())
     }
 
     /// Signals that the drawable's surface was updated.
     pub fn refresh(&mut self) -> rlua::Result<()> {
         let mut drawable = self.state()?;
         drawable.refreshed = true;
-        self.set_state(drawable)
+        Ok(())
     }
 }
 

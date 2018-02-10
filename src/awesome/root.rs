@@ -14,6 +14,7 @@ pub struct RootState {
     dummy: i32
 }
 
+#[derive(Debug, Clone)]
 pub struct Root<'lua>(Table<'lua>);
 
 impl Default for RootState {
