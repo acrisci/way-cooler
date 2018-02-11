@@ -3,40 +3,87 @@
 
 use std::default::Default;
 use std::fmt::{self, Display, Formatter};
+use std::cell::RefCell;
+use std::sync::{Mutex, MutexGuard, Arc, Weak};
 use rustwlc::{Geometry, Point, Size};
 use rlua::{self, Table, Lua, UserData, ToLua, Value};
 use rlua::prelude::LuaInteger;
 use super::drawable::Drawable;
 use super::property::Property;
+use cairo::ImageSurface;
 
 use super::class::{self, Class, ClassBuilder};
 use super::object::{Object, Objectable, ObjectBuilder};
+
+lazy_static! {
+    static ref DRAWINS: Mutex<RefCell<Vec<Weak<Mutex<DrawinSharedState>>>>> = Mutex::new(RefCell::new(Vec::default()));
+}
+
+#[derive(Clone, Debug)]
+pub struct DrawinSharedState {
+    ontop: bool,
+    pub visible: bool,
+    cursor: String,
+    pub geometry: Geometry,
+    geometry_dirty: bool,
+    pub surface: Option<Arc<Mutex<ImageSurface>>>
+}
 
 #[derive(Clone, Debug)]
 pub struct DrawinState {
     // Note that the drawable is stored in Lua.
     // TODO WINDOW_OBJECT_HEADER??
-    ontop: bool,
-    visible: bool,
-    cursor: String,
-    geometry: Geometry,
-    geometry_dirty: bool
+    pub state: Arc<Mutex<DrawinSharedState>>
 }
 
 #[derive(Clone, Debug)]
 pub struct Drawin<'lua>(Table<'lua>);
 
+impl DrawinState {
+    fn lock(&self) -> rlua::Result<MutexGuard<DrawinSharedState>> {
+        self.state.lock().map_err(// FIXME
+                                  // |e| rlua::Error::external(e))
+                                  |_| rlua::Error::CoroutineInactive)
+    }
+
+    // Collect the list of visible drawins into a vector
+    pub fn collect_visible() -> Vec<Arc<Mutex<DrawinSharedState>>> {
+        let list = DRAWINS.lock().unwrap();
+        // Get a list of entries and at the same time remove dead entries
+        let mut result = Vec::default();
+        list.borrow_mut().retain(|ref e| {
+            match e.upgrade() {
+                Some(e) => {
+                    let drawin = e.lock().unwrap();
+                    if drawin.visible {
+                        result.push(Arc::clone(&e));
+                    }
+                    true
+                },
+                None => false
+            }
+        });
+        result
+    }
+}
+
 impl UserData for DrawinState {}
 
 impl Default for DrawinState {
     fn default() -> Self {
-        DrawinState {
-            ontop: false,
-            visible: false,
-            cursor: String::default(),
-            geometry: Geometry::zero(),
-            geometry_dirty: false
-        }
+        let result = DrawinState {
+            state: Arc::new(Mutex::new(DrawinSharedState {
+                ontop: false,
+                visible: false,
+                cursor: String::default(),
+                geometry: Geometry::zero(),
+                geometry_dirty: false,
+                surface: None
+            }))
+        };
+        let list = DRAWINS.lock().unwrap();
+        list.borrow_mut().push(Arc::downgrade(&result.state));
+        result
     }
 }
 
@@ -58,19 +105,22 @@ impl <'lua> Drawin<'lua> {
         let state = self.state()?;
         let table = &self.0;
         let mut drawable = Drawable::cast(table.get::<_, Table>("drawable")?.into())?;
+        let mut state = state.lock()?;
         drawable.set_geometry(state.geometry)?;
+        state.surface = drawable.state()?.surface.clone(); // This clones Option<Arc<...>>, aka creates a new reference in the Arc
         table.raw_set::<_, Table>("drawable", drawable.get_table())?;
         Ok(())
     }
 
     fn get_visible(&mut self) -> rlua::Result<bool> {
-        let drawin = self.state()?;
-        Ok(drawin.visible)
+        let state = self.state()?;
+        let state = state.lock()?;
+        Ok(state.visible)
     }
 
     fn set_visible(&mut self, val: bool) -> rlua::Result<()> {
-        let mut drawin = self.state()?;
-        drawin.visible = val;
+        let drawin = self.state()?;
+        drawin.lock()?.visible = val;
         self.map()?;
         self.set_state(drawin)
     }
@@ -81,11 +131,15 @@ impl <'lua> Drawin<'lua> {
     }
 
     fn get_geometry(&self) -> rlua::Result<Geometry> {
-        Ok(self.state()?.geometry)
+        let state = self.state()?;
+        let state = state.lock()?;
+        Ok(state.geometry)
     }
 
     fn resize(&mut self, geometry: Geometry) -> rlua::Result<()> {
-        let mut state = self.state()?;
+        let state = self.state()?;
+        {
+        let mut state = state.lock()?;
         let old_geometry = state.geometry;
         state.geometry = geometry;
         if state.geometry.size.w <= 0 {
@@ -95,10 +149,12 @@ impl <'lua> Drawin<'lua> {
             state.geometry.size.h = old_geometry.size.h
         }
         state.geometry_dirty = true;
-        self.update_drawing()?;
         // TODO emit signals
         // TODO update screen workareas like in awesome? Might not be necessary
-        self.set_state(state)
+        // TODO Currently have to call set_state() before update_drawing; change that
+        }
+        self.set_state(state)?;
+        self.update_drawing()
     }
 }
 

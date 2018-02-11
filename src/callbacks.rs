@@ -3,6 +3,8 @@
 use rustwlc::handle::{WlcOutput, WlcView};
 use rustwlc::types::*;
 
+use cairo::{Context, Operator, Format, ImageSurface};
+
 use super::keys;
 use super::layout::{lock_tree, try_lock_tree, TreeError};
 use super::lua;
@@ -165,6 +167,56 @@ pub extern fn view_pre_render(view: WlcView) {
     }
 }
 
+#[cfg(target_endian = "big")]
+fn read_u32(buffer: &mut [u8], i: usize) -> (u8, u8, u8, u8) {
+    (buffer[i + 0], buffer[i + 1], buffer [i + 2], buffer[i + 3])
+}
+
+#[cfg(target_endian = "little")]
+fn read_u32(buffer: &mut [u8], i: usize) -> (u8, u8, u8, u8) {
+    (buffer[i + 3], buffer[i + 2], buffer [i + 1], buffer[i + 0])
+}
+
+// FIXME: This is only needed on little endian :-(
+fn convert_to_png(buffer: &mut [u8]) -> &mut [u8] {
+    let mut length = buffer.len();
+    length -= length % 4;
+    let mut i = 0;
+    while i < length {
+        // Cairo wants native endian u32, we need actual RGBA
+        let (a, r, g, b) = read_u32(buffer, i);
+        buffer[i + 0] = r;
+        buffer[i + 1] = g;
+        buffer[i + 2] = b;
+        buffer[i + 3] = a;
+        i += 4;
+    }
+    buffer
+}
+
+pub extern fn output_pre_render(_output: WlcOutput) {
+    let drawins = ::awesome::drawin::DrawinState::collect_visible();
+    use rustwlc::render::*;
+    for drawin in drawins {
+        let drawin = drawin.lock().unwrap();
+        if drawin.visible {
+            if let Some(surface) = drawin.surface.as_ref() {
+                let surface = surface.lock().unwrap();
+                let mut other = ImageSurface::create(Format::ARgb32,
+                                                     surface.get_width(), surface.get_height()).unwrap();
+                {
+                    let cr = Context::new(&other);
+                    cr.set_source_surface(&*surface, 0.0, 0.0);
+                    cr.set_operator(Operator::Source);
+                    cr.paint();
+                }
+                write_pixels(wlc_pixel_format::WLC_RGBA8888,
+                            drawin.geometry,
+                            convert_to_png(&mut *other.get_data().unwrap()));
+            }
+        }
+    }
+}
 
 pub fn init() {
     use rustwlc::callback;
@@ -190,5 +242,6 @@ pub fn init() {
     callback::compositor_ready(compositor_ready);
     callback::compositor_terminate(compositor_terminating);
     callback::view_render_pre(view_pre_render);
+    callback::output_render_pre(output_pre_render);
     trace!("Registered wlc callbacks");
 }

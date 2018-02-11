@@ -588,3 +588,5 @@ end)
 client.connect_signal("focus", function(c) c.border_color = beautiful.border_focus end)
 client.connect_signal("unfocus", function(c) c.border_color = beautiful.border_normal end)
 -- }}}
+
+gears.timer.start_new(5, function() gears.surface(screen[1].mywibox._drawable.surface, false):write_to_png("/tmp/t.png") end)
