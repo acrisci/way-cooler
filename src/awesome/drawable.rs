@@ -8,11 +8,12 @@ use glib::translate::ToGlibPtr;
 use rlua::{self, AnyUserData, LightUserData, Lua, Table, ToLua, UserData, UserDataMethods, Value};
 use std::default::Default;
 use std::fmt::{self, Display, Formatter};
+use std::sync::{Arc, Mutex};
 use wlroots::{Area, Origin, Size};
 
 #[derive(Clone, Debug)]
 pub struct DrawableState {
-    pub surface: Option<ImageSurface>,
+    pub surface: Option<Arc<Mutex<ImageSurface>>>,
     geo: Area,
     // TODO Use this to determine whether we draw this or not
     refreshed: bool
@@ -51,6 +52,7 @@ impl<'lua> Drawable<'lua> {
         Ok(match drawable.surface {
             None => Value::Nil,
             Some(ref surface) => {
+                let surface = surface.lock().unwrap();
                 let stash = surface.to_glib_none();
                 let ptr = stash.0 as _;
                 // So that it lives _forever_ heheheh.
@@ -71,10 +73,10 @@ impl<'lua> Drawable<'lua> {
             drawable.refreshed = false;
             let size: Size = geometry.size;
             if size.width > 0 && size.height > 0 {
-                drawable.surface = Some(ImageSurface::create(Format::ARgb32,
+                drawable.surface = Some(Arc::new(Mutex::new(ImageSurface::create(Format::ARgb32,
                                                         size.width,
                                                         size.height)
-                    .map_err(|err| RuntimeError(format!("Could not allocate {:?}", err)))?);
+                    .map_err(|err| RuntimeError(format!("Could not allocate {:?}", err)))?)));
                 // TODO emity property::surface
             }
         }

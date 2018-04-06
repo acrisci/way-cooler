@@ -3,8 +3,10 @@
 
 use super::drawable::Drawable;
 use super::property::Property;
+use cairo::ImageSurface;
 use rlua::{self, AnyUserData, Lua, Table, ToLua, UserData, UserDataMethods, Value};
 use rlua::prelude::LuaInteger;
+use std::{cell::RefCell, sync::{Arc, Mutex, MutexGuard, Weak}};
 use std::default::Default;
 use std::fmt::{self, Display, Formatter};
 use wlroots::{Area, Origin, Size};
@@ -12,15 +14,49 @@ use wlroots::{Area, Origin, Size};
 use super::class::{self, Class, ClassBuilder};
 use super::object::{self, Object, ObjectBuilder, Objectable};
 
+lazy_static! {
+    static ref DRAWINS: Mutex<RefCell<Vec<Weak<Mutex<DrawinSharedState>>>>> =
+        Mutex::new(RefCell::new(vec![]));
+}
+
+#[derive(Clone, Debug)]
+pub struct DrawinSharedState {
+    ontop: bool,
+    pub visible: bool,
+    cursor: String,
+    pub geometry: Area,
+    geometry_dirty: bool,
+    pub surface: Option<Arc<Mutex<ImageSurface>>>
+}
+
 #[derive(Clone, Debug)]
 pub struct DrawinState {
-    // Note that the drawable is stored in Lua.
-    // TODO WINDOW_OBJECT_HEADER??
-    ontop: bool,
-    visible: bool,
-    cursor: String,
-    geometry: Area,
-    geometry_dirty: bool
+    pub state: Arc<Mutex<DrawinSharedState>>
+}
+
+impl DrawinState {
+    fn lock(&self) -> rlua::Result<MutexGuard<DrawinSharedState>> {
+        self.state.lock()
+            .map_err(|_| rlua::Error::CoroutineInactive)
+    }
+
+    pub fn collect_visible() -> Vec<Arc<Mutex<DrawinSharedState>>> {
+        let list = DRAWINS.lock().unwrap();
+        let mut result = vec![];
+        list.borrow_mut().retain(|ref e| {
+                                     match e.upgrade() {
+                                         None => false,
+                                         Some(e) => {
+                                             let drawin = e.lock().unwrap();
+                                             if drawin.visible {
+                                                 result.push(Arc::clone(&e))
+                                             }
+                                             true
+                                         }
+                                     }
+                                 });
+        result
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -34,11 +70,16 @@ impl UserData for DrawinState {
 
 impl Default for DrawinState {
     fn default() -> Self {
-        DrawinState { ontop: false,
-                      visible: false,
-                      cursor: String::default(),
-                      geometry: Area::default(),
-                      geometry_dirty: false }
+        let state = Arc::new(Mutex::new(DrawinSharedState { ontop: false,
+                                                            visible: false,
+                                                            cursor: String::default(),
+                                                            geometry: Area::default(),
+                                                            surface: None,
+                                                            geometry_dirty: false }));
+        let result = DrawinState { state };
+        let list = DRAWINS.lock().unwrap();
+        list.borrow_mut().push(Arc::downgrade(&result.state));
+        result
     }
 }
 
@@ -59,20 +100,23 @@ impl<'lua> Drawin<'lua> {
         let state = self.state()?;
         let table = self.0.table()?;
         let mut drawable = Drawable::cast(table.get::<_, AnyUserData>("drawable")?.into())?;
+        let mut state = state.lock()?;
         drawable.set_geometry(state.geometry)?;
+        state.surface = drawable.state()?.surface.clone();
         table.raw_set("drawable", drawable)?;
         Ok(())
     }
 
     fn get_visible(&mut self) -> rlua::Result<bool> {
-        let drawin = self.state()?;
-        Ok(drawin.visible)
+        let state = self.state()?;
+        let state = state.lock()?;
+        Ok(state.visible)
     }
 
     fn set_visible(&mut self, val: bool) -> rlua::Result<()> {
         {
-            let mut drawin = self.get_object_mut()?;
-            drawin.visible = val;
+            let drawin = self.get_object_mut()?;
+            drawin.lock()?.visible = val;
         }
         self.map()
     }
@@ -83,12 +127,15 @@ impl<'lua> Drawin<'lua> {
     }
 
     fn get_geometry(&self) -> rlua::Result<Area> {
-        Ok(self.state()?.geometry)
+        let state = self.state()?;
+        let state = state.lock()?;
+        Ok(state.geometry)
     }
 
     fn resize(&mut self, geometry: Area) -> rlua::Result<()> {
         {
-            let mut state = self.get_object_mut()?;
+            let state = self.get_object_mut()?;
+            let mut state = state.lock()?;
             let old_geometry = state.geometry;
             state.geometry = geometry;
             {

@@ -1,5 +1,6 @@
 //! Types defined by Lua thread
 
+use ipc;
 use std::fmt::{Debug, Formatter};
 use std::fmt::Result as FmtResult;
 
@@ -15,6 +16,8 @@ pub enum LuaQuery {
     Restart,
     /// Execute a string
     Execute(String),
+    /// Send data,
+    Data(ipc::Data),
     /// Execute a file
     ExecFile(String),
     /// Execute some Rust using the Lua context.
@@ -74,6 +77,7 @@ impl Debug for LuaQuery {
             LuaQuery::Execute(ref val) => write!(f, "LuaQuery::Execute({:?})", val),
             LuaQuery::ExecFile(ref val) => write!(f, "LuaQuery::ExecFile({:?})", val),
             LuaQuery::ExecRust(_) => write!(f, "LuaQuery::ExecRust()"),
+            LuaQuery::Data(ref val) => write!(f, "LuaQuery::Data({:?})", val),
             LuaQuery::ExecWithLua(_) => write!(f, "LuaQuery::ExecWithLua()")
         }
     }

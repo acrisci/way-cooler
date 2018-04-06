@@ -1,4 +1,6 @@
+use awesome::{lua::{self, LuaQuery}, OUTPUTS};
 use compositor::{Output, Server};
+use ipc::Data;
 use wlroots::{Compositor, OutputBuilder, OutputBuilderResult, OutputManagerHandler};
 
 pub struct OutputManager;
@@ -20,6 +22,10 @@ impl OutputManagerHandler for OutputManager {
                      ref mut layout,
                      ref mut xcursor_theme,
                      .. } = *server;
+        lua::send(LuaQuery::Data(Data::Output(res.output.into()))).expect("Could not send the \
+                                                                           lua thread information");
+        let mut outputs = OUTPUTS.lock().expect("Lock was poisoned");
+        outputs.push(res.output.into());
         run_handles!([(layout: {layout}), (cursor: {cursor})] => {
             let xcursor = xcursor_theme.get_cursor("left_ptr".into())
                 .expect("Could not load left_ptr cursor");

@@ -14,8 +14,8 @@ mod screen;
 mod button;
 mod tag;
 mod key;
-mod drawin;
-mod drawable;
+pub mod drawin;
+pub mod drawable;
 mod mouse;
 mod root;
 pub mod signal;
@@ -34,7 +34,7 @@ pub const GLOBAL_SIGNALS: &'static str = "__awesome_global_signals";
 pub const XCB_CONNECTION_HANDLE: &'static str = "__xcb_connection";
 
 lazy_static! {
-    pub static ref OUTPUTS: Mutex<Vec<Output>> = Mutex::new(vec![]);
+    pub static ref OUTPUTS: Mutex<Vec<Output>> = Mutex::new(vec![Output::new()]);
     pub static ref POINTER: Mutex<Pointer> = Mutex::new(Pointer::default());
 }
 

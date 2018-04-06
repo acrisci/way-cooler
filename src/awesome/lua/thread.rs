@@ -1,5 +1,6 @@
 //! Code for the internal Lua thread which handles all Lua requests.
 
+use ipc::Data;
 use std::cell::{Cell, RefCell};
 use std::collections::btree_map::BTreeMap;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
@@ -13,7 +14,7 @@ use std::thread;
 use glib::MainLoop;
 use glib::source::{idle_add, Continue};
 
-use awesome::convert::lua_to_json;
+use awesome::{convert::lua_to_json, OUTPUTS};
 
 use rlua;
 use rustc_serialize::json::Json;
@@ -163,7 +164,6 @@ pub fn init() {
 
 pub fn on_compositor_ready() {
     info!("Running lua on_init()");
-    // Call the special init hook function that we read from the init file
     init();
     send(LuaQuery::Execute(INIT_LUA_FUNC.to_owned())).err()
                                                      .map(|error| {
@@ -342,6 +342,18 @@ fn handle_message(request: LuaMessage, lua: &mut rlua::Lua) -> bool {
                 // Unwrap_err is used because we're in the else of let Ok
                 let read_error = rlua::Error::RuntimeError(format!("{:#?}", try_file.unwrap_err()));
                 thread_send(request.reply, LuaResponse::Error(read_error));
+            }
+        }
+        LuaQuery::Data(data) => {
+            error!("Got data {:#?}", data);
+            match data {
+                Data::Pointer(_) => { /*TODO*/ }
+                Data::Output(output) => {
+                    let mut outputs = OUTPUTS.lock().expect("OUTPUTS was poisoned");
+                    outputs.push(output.clone());
+                    ::awesome::screen::add_screen(lua, output).expect("Could not add screen to \
+                                                                       awesome");
+                }
             }
         }
         LuaQuery::ExecRust(func) => {

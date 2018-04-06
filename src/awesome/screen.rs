@@ -259,3 +259,15 @@ fn index<'lua>(lua: &'lua Lua,
         Ok(value) => Ok(value)
     }
 }
+
+pub fn add_screen<'lua>(lua: &'lua Lua, output: ::ipc::Output) -> rlua::Result<()> {
+    let mut screens: Vec<Screen> = lua.named_registry_value::<Vec<AnyUserData>>(SCREENS_HANDLE)?
+                                      .into_iter()
+                                      .map(|obj| Screen::cast(obj.into()).unwrap())
+                                      .collect();
+    let mut screen = Screen::cast(Screen::new(lua)?)?;
+    screen.init_screens(output.clone(), vec![output.clone().into()])?;
+    screens.push(screen);
+    lua.set_named_registry_value(SCREENS_HANDLE, screens.clone().to_lua(lua)?)?;
+    Ok(())
+}
