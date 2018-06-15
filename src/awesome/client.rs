@@ -4,6 +4,8 @@ use super::object::{Object, Objectable};
 use rlua::{self, Lua, Table, ToLua, UserData, Value};
 use std::default::Default;
 use std::fmt::{self, Display, Formatter};
+use wlroots::compositor_handle;
+use compositor::Server;
 
 #[derive(Clone, Debug)]
 pub struct ClientState {
@@ -55,11 +57,17 @@ fn method_setup<'lua>(lua: &'lua Lua,
     // TODO Do properly
     use super::dummy;
     builder.method("connect_signal".into(), lua.create_function(dummy)?)?
-           .method("get".into(), lua.create_function(dummy_table)?)
+           .method("get".into(), lua.create_function(get_clients)?)
 }
 
 impl_objectable!(Client, ClientState);
 
-fn dummy_table<'lua>(lua: &'lua Lua, _: rlua::Value) -> rlua::Result<Table<'lua>> {
+fn get_clients<'lua>(lua: &'lua Lua, _: rlua::Value) -> rlua::Result<Table<'lua>> {
+    with_handles!([(compositor: {compositor_handle().unwrap()})] => {
+        let server: &mut Server = compositor.into();
+        for view in &server.views {
+            println!("TODO: add this view to the lua table: {:p}", view);
+        }
+    }).unwrap();
     Ok(lua.create_table()?)
 }
