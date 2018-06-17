@@ -11,13 +11,16 @@ pub struct PendingMoveResize {
     pub area: Area
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct View {
     pub shell: Shell,
     pub origin: Mutex<Origin>,
-    pub lua_id: u32,
     pub pending_move_resize: Mutex<Option<PendingMoveResize>>
 }
+
+unsafe impl Sync for View {}
+
+unsafe impl Send for View {}
 
 impl PartialEq for View {
     fn eq(&self, other: &View) -> bool {
@@ -27,18 +30,11 @@ impl PartialEq for View {
 
 impl Eq for View {}
 
-static mut lua_counter: u32 = 0;
-
 impl View {
     pub fn new(shell: Shell) -> View {
-        let lua_id = unsafe {
-            lua_counter += 1;
-            lua_counter
-        };
         View { shell: shell,
                origin: Mutex::new(Origin::default()),
                pending_move_resize: Mutex::new(None),
-               lua_id
         }
     }
 

@@ -10,19 +10,13 @@ use wlroots::{compositor_handle, Origin, Size, Area};
 
 pub const CLIENTS_HANDLE: &'static str = "__clients";
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ClientState {
-    pub lua_id: u32
+    pub view: Arc<View>
 }
 
 #[derive(Clone, Debug)]
 pub struct Client<'lua>(Object<'lua>);
-
-impl Default for ClientState {
-    fn default() -> Self {
-        ClientState { lua_id: 0 }
-    }
-}
 
 impl <'lua> Client<'lua> {
     pub fn new(lua: &Lua) -> rlua::Result<Object> {
@@ -30,9 +24,9 @@ impl <'lua> Client<'lua> {
         Ok(Client::allocate(lua, class)?.build())
     }
 
-    pub fn init_client(&mut self, view: &View) -> rlua::Result<()> {
+    pub fn init_client(&mut self, view: Arc<View>) -> rlua::Result<()> {
         let mut state = self.get_object_mut()?;
-        state.lua_id = view.lua_id;
+        state.view = view;
         Ok(())
     }
 }
@@ -49,15 +43,6 @@ impl<'lua> ToLua<'lua> for Client<'lua> {
     }
 }
 
-impl ClientState {
-    fn view(&self) -> Arc<View> {
-        with_handles!([(compositor: {compositor_handle().unwrap()})] => {
-            let server: &mut Server = compositor.into();
-            server.views.iter().find(|view| view.lua_id == self.lua_id).unwrap().clone()
-        }).unwrap()
-    }
-}
-
 impl UserData for ClientState {
     fn add_methods(methods: &mut UserDataMethods<Self>) {
         methods.add_method("geometry", |lua, state, (geometry,): (Value,)| {
@@ -68,15 +53,14 @@ impl UserData for ClientState {
                         size: Size { width: table.get("width")?, height: table.get("height")? }
                     };
 
-                    state.view().move_resize(area);
+                    state.view.move_resize(area);
 
                     Ok(Value::Nil.to_lua(lua))
                 },
                 _ => {
-                    let view = state.view();
                     let table = lua.create_table()?;
-                    let geometry = view.geometry();
-                    let Origin { x, y } = *view.origin.lock().unwrap();
+                    let geometry = state.view.geometry();
+                    let Origin { x, y } = *state.view.origin.lock().unwrap();
                     table.set("x", geometry.origin.x + x)?;
                     table.set("y", geometry.origin.y + y)?;
                     table.set("width", geometry.size.width)?;
@@ -91,7 +75,7 @@ impl UserData for ClientState {
                 Value::String(value) => {
                     match value.to_str() {
                         Ok("title") => {
-                            Ok(class.view().title().to_lua(lua))
+                            Ok(class.view.title().to_lua(lua))
                         },
                         _ => Ok(Value::Nil.to_lua(lua))
                     }
@@ -107,7 +91,7 @@ pub fn init<'lua>(lua: &'lua Lua, server: &Server) -> rlua::Result<Class<'lua>> 
 
     for view in &server.views {
         let mut client = Client::cast(Client::new(lua)?)?;
-        client.init_client(&view)?;
+        client.init_client(view.clone())?;
         clients.push(client);
     }
 
@@ -143,13 +127,13 @@ fn get_clients<'lua>(lua: &'lua Lua, _: rlua::Value) -> rlua::Result<Table<'lua>
     Ok(table)
 }
 
-pub fn notify_client_add<'lua>(lua: &'lua Lua, view: &View) -> rlua::Result<()> {
+pub fn notify_client_add<'lua>(lua: &'lua Lua, view: Arc<View>) -> rlua::Result<()> {
     let mut clients: Vec<Client> = lua.named_registry_value::<Vec<AnyUserData>>(CLIENTS_HANDLE)?
                                       .into_iter()
                                       .map(|obj| Client::cast(obj.into()).unwrap())
                                       .collect();
     let mut client = Client::cast(Client::new(lua)?)?;
-    client.init_client(&view)?;
+    client.init_client(view.clone())?;
     clients.push(client);
 
     lua.set_named_registry_value(CLIENTS_HANDLE, clients.clone().to_lua(lua)?)?;
@@ -157,13 +141,13 @@ pub fn notify_client_add<'lua>(lua: &'lua Lua, view: &View) -> rlua::Result<()> 
     Ok(())
 }
 
-pub fn notify_client_remove<'lua>(lua: &'lua Lua, view: &View) -> rlua::Result<()> {
+pub fn notify_client_remove<'lua>(lua: &'lua Lua, view: Arc<View>) -> rlua::Result<()> {
     let mut clients: Vec<Client> = lua.named_registry_value::<Vec<AnyUserData>>(CLIENTS_HANDLE)?
                                       .into_iter()
                                       .map(|obj| Client::cast(obj.into()).unwrap())
                                       .collect();
 
-    if let Some(idx) = clients.iter().position(|client| client.state().unwrap().lua_id == view.lua_id) {
+    if let Some(idx) = clients.iter().position(|client| client.state().unwrap().view == view) {
         clients.remove(idx);
     }
 

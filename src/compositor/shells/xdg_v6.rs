@@ -132,7 +132,7 @@ impl XdgV6ShellHandler for XdgV6 {
                 seat.focus_view(view.clone(), views);
                 LUA.with(|lua| {
                     let lua = lua.borrow();
-                    notify_client_add(&lua, &view.clone()).expect("could not add lua client");
+                    notify_client_add(&lua, view.clone()).expect("could not add lua client");
                 });
             }
 
@@ -157,7 +157,7 @@ impl XdgV6ShellHandler for XdgV6 {
             if let Some(pos) = views.iter().position(|view| view.shell == destroyed_shell) {
                 LUA.with(|lua| {
                     let lua = lua.borrow();
-                    notify_client_remove(&lua, &views[pos].clone()).expect("could not remove lua client");
+                    notify_client_remove(&lua, views[pos].clone()).expect("could not remove lua client");
                 });
                 views.remove(pos);
             }
