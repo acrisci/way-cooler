@@ -4,6 +4,8 @@ use wlroots::{CompositorHandle, Origin, SurfaceHandle, SurfaceHandler, XdgV6Shel
 
 use std::rc::Rc;
 use wlroots::xdg_shell_v6_events::MoveEvent;
+use awesome::{notify_client_add, notify_client_remove};
+use awesome::lua::LUA;
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct XdgV6 {
@@ -64,7 +66,11 @@ impl XdgV6ShellHandler for XdgV6 {
             if is_toplevel {
                 let view = Rc::new(View::new(Shell::XdgV6(shell_surface.into())));
                 views.push(view.clone());
-                seat.focus_view(view, views);
+                seat.focus_view(view.clone(), views);
+                LUA.with(|lua| {
+                    let lua = lua.borrow();
+                    notify_client_add(&lua, &view.clone()).expect("could not add lua client");
+                });
             }
 
             with_handles!([(cursor: {cursor})] => {
@@ -86,6 +92,10 @@ impl XdgV6ShellHandler for XdgV6 {
                          .. } = *server;
             let destroyed_shell = shell_surface.into();
             if let Some(pos) = views.iter().position(|view| view.shell == destroyed_shell) {
+                LUA.with(|lua| {
+                    let lua = lua.borrow();
+                    notify_client_remove(&lua, &views[pos].clone()).expect("could not remove lua client");
+                });
                 views.remove(pos);
             }
 
