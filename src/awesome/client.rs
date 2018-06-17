@@ -4,15 +4,15 @@ use super::object::{Object, Objectable};
 use rlua::{self, Lua, Table, ToLua, UserData, Value, AnyUserData, UserDataMethods, MetaMethod};
 use std::default::Default;
 use std::fmt::{self, Display, Formatter};
+use std::rc::Rc;
 use compositor::{Server, View};
+use wlroots::{compositor_handle, Origin, Size, Area};
 
 pub const CLIENTS_HANDLE: &'static str = "__clients";
 
 #[derive(Clone, Debug)]
 pub struct ClientState {
-    // TODO Fill in
-    pub lua_id: u32,
-    title: String,
+    pub lua_id: u32
 }
 
 #[derive(Clone, Debug)]
@@ -20,7 +20,7 @@ pub struct Client<'lua>(Object<'lua>);
 
 impl Default for ClientState {
     fn default() -> Self {
-        ClientState { lua_id: 0, title: "".into() }
+        ClientState { lua_id: 0 }
     }
 }
 
@@ -33,7 +33,6 @@ impl <'lua> Client<'lua> {
     pub fn init_client(&mut self, view: &View) -> rlua::Result<()> {
         let mut state = self.get_object_mut()?;
         state.lua_id = view.lua_id;
-        state.title = view.title();
         Ok(())
     }
 }
@@ -50,14 +49,49 @@ impl<'lua> ToLua<'lua> for Client<'lua> {
     }
 }
 
+impl ClientState {
+    fn view(&self) -> Rc<View> {
+        with_handles!([(compositor: {compositor_handle().unwrap()})] => {
+            let server: &mut Server = compositor.into();
+            server.views.iter().find(|view| view.lua_id == self.lua_id).unwrap().clone()
+        }).unwrap()
+    }
+}
+
 impl UserData for ClientState {
     fn add_methods(methods: &mut UserDataMethods<Self>) {
+        methods.add_method("geometry", |lua, state, (geometry,): (Value,)| {
+            match geometry {
+                Value::Table(table) => {
+                    let area = Area {
+                        origin: Origin { x: table.get("x")?, y: table.get("y")? },
+                        size: Size { width: table.get("width")?, height: table.get("height")? }
+                    };
+
+                    state.view().move_resize(area);
+
+                    Ok(Value::Nil.to_lua(lua))
+                },
+                _ => {
+                    let view = state.view();
+                    let table = lua.create_table()?;
+                    let geometry = view.geometry();
+                    let Origin { x, y } = view.origin.get();
+                    table.set("x", geometry.origin.x + x)?;
+                    table.set("y", geometry.origin.y + y)?;
+                    table.set("width", geometry.size.width)?;
+                    table.set("height", geometry.size.height)?;
+                    Ok(table.to_lua(lua))
+                }
+            }
+        });
+
         methods.add_meta_function(MetaMethod::Index, |lua, (class, index): (ClientState, Value)| {
             match index {
                 Value::String(value) => {
                     match value.to_str() {
                         Ok("title") => {
-                            Ok(class.title.to_lua(lua))
+                            Ok(class.view().title().to_lua(lua))
                         },
                         _ => Ok(Value::Nil.to_lua(lua))
                     }

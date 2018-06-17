@@ -132,4 +132,14 @@ impl View {
             }
         }
     }
+
+    pub fn geometry(&self) -> Area {
+        match self.shell {
+            Shell::XdgV6(ref xdg_surface) => {
+                with_handles!([(xdg_surface: {xdg_surface})] => {
+                    xdg_surface.geometry()
+                }).unwrap()
+            }
+        }
+    }
 }
