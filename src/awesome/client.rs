@@ -4,7 +4,7 @@ use super::object::{Object, Objectable};
 use rlua::{self, Lua, Table, ToLua, UserData, Value, AnyUserData, UserDataMethods, MetaMethod};
 use std::default::Default;
 use std::fmt::{self, Display, Formatter};
-use std::rc::Rc;
+use std::sync::Arc;
 use compositor::{Server, View};
 use wlroots::{compositor_handle, Origin, Size, Area};
 
@@ -50,7 +50,7 @@ impl<'lua> ToLua<'lua> for Client<'lua> {
 }
 
 impl ClientState {
-    fn view(&self) -> Rc<View> {
+    fn view(&self) -> Arc<View> {
         with_handles!([(compositor: {compositor_handle().unwrap()})] => {
             let server: &mut Server = compositor.into();
             server.views.iter().find(|view| view.lua_id == self.lua_id).unwrap().clone()
@@ -76,7 +76,7 @@ impl UserData for ClientState {
                     let view = state.view();
                     let table = lua.create_table()?;
                     let geometry = view.geometry();
-                    let Origin { x, y } = view.origin.get();
+                    let Origin { x, y } = *view.origin.lock().unwrap();
                     table.set("x", geometry.origin.x + x)?;
                     table.set("y", geometry.origin.y + y)?;
                     table.set("width", geometry.size.width)?;

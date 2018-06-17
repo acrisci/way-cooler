@@ -1,5 +1,5 @@
 use compositor::Shell;
-use std::cell::Cell;
+use std::sync::Mutex;
 use wlroots::XdgV6ShellState::*;
 use wlroots::{Area, Origin, Size, SurfaceHandle};
 
@@ -11,13 +11,21 @@ pub struct PendingMoveResize {
     pub area: Area
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub struct View {
     pub shell: Shell,
-    pub origin: Cell<Origin>,
+    pub origin: Mutex<Origin>,
     pub lua_id: u32,
-    pub pending_move_resize: Cell<Option<PendingMoveResize>>
+    pub pending_move_resize: Mutex<Option<PendingMoveResize>>
 }
+
+impl PartialEq for View {
+    fn eq(&self, other: &View) -> bool {
+        self.shell == other.shell
+    }
+}
+
+impl Eq for View {}
 
 static mut lua_counter: u32 = 0;
 
@@ -28,8 +36,8 @@ impl View {
             lua_counter
         };
         View { shell: shell,
-               origin: Cell::new(Origin::default()),
-               pending_move_resize: Cell::new(None),
+               origin: Mutex::new(Origin::default()),
+               pending_move_resize: Mutex::new(None),
                lua_id
         }
     }
@@ -77,7 +85,7 @@ impl View {
         let height = height as u32;
 
         let Origin { x: view_x,
-                     y: view_y } = self.origin.get();
+                     y: view_y } = *self.origin.lock().unwrap();
 
         let update_x = x != view_x;
         let update_y = y != view_y;
@@ -99,12 +107,15 @@ impl View {
 
         if serial == 0 {
             // size didn't change
-            self.origin.set(Origin { x, y });
+            *self.origin.lock().unwrap() = Origin { x, y };
         } else {
-            self.pending_move_resize.set(Some(PendingMoveResize { update_x,
-                                              update_y,
-                                              area,
-                                              serial }));
+            *self.pending_move_resize.lock().unwrap() =
+                Some(PendingMoveResize {
+                    update_x,
+                    update_y,
+                    area,
+                    serial
+                });
         }
     }
 
